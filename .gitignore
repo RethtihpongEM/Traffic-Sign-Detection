@@ -1,6 +1,3 @@
 /Dataset
 
-/Preprocessing/cleaned_train_folder
-/Preprocessing/cleaned_test_folder
-/Preprocessing/resized_train_image
-/Preprocessing/resized_test_image
+/Preprocessing/cleaned_training_data
