@@ -1,10 +1,8 @@
 /Dataset
 
 /Models/runs
-/Models/YOLOv8
 
 /Models/runs
-/Models/YOLOv8
 
 /Preprocessing/cleaned_training_data
 /Preprocessing/output_train_folder
