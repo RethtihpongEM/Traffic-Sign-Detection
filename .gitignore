@@ -1,4 +1,7 @@
 /Dataset
 
+/Models/runs
+/Models/YOLOv8
+
 /Preprocessing/output_train_folder
 /Preprocessing/resized_image
