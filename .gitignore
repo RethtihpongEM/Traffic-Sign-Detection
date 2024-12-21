@@ -1,3 +1,5 @@
 /Dataset
 
 /Preprocessing/cleaned_training_data
+/Preprocessing/output_train_folder
+/Preprocessing/resized_image
