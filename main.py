@@ -5,11 +5,10 @@ import tensorflow as tf
 import cv2
 import pandas as pd
 from ultralytics import YOLO
-from tensorflow.keras.preprocessing.image import load_img, img_to_array
-
+import re
 
 cnn_keras_model_path = "./Models/CNN-KERAS/model_cnn_keras.h5"
-yolov8_model_path = "./Models/YOLOv8/saved_model.pt"
+yolov8_model_path = "./Models/YOLOv8/saved_model1.pt"
 vgg19_model_path = "./Models/VGG-19/vgg19_trained_model.h5"
 
 cnn_keras_model = tf.keras.models.load_model(cnn_keras_model_path)
@@ -65,71 +64,37 @@ classes = {
 }
 
 
-def traffic_sign_bounding_box_and_crop(image_path):
-    # Load image and convert to grayscale
-    image = cv2.imread(image_path)
-    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # Apply GaussianBlur (optional, depends on your image)
-    blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
-
-    # Use Canny edge detection or a different method for detecting edges
-    edges = cv2.Canny(blurred_image, 50, 150)
-
-    # Find contours in the edges image
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Draw bounding boxes around detected contours and crop the image
-    bounding_boxes = []
-    cropped_images = []
-    for contour in contours:
-        # Ignore small contours, set a threshold for the area (optional)
-        if cv2.contourArea(contour) > 100:
-            # Get bounding box coordinates for each contour
-            x, y, w, h = cv2.boundingRect(contour)
-            bounding_boxes.append((x, y, w, h))
-
-            # Crop the detected region (the bounding box area)
-            cropped_sign = image[y : y + h, x : x + w]
-            cropped_images.append(cropped_sign)
-
-            # Draw rectangle on the original image (optional)
-            cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-    # Convert image back to RGB (for display in Streamlit)
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    # Return the image with bounding boxes and cropped images
-    return image_rgb, bounding_boxes, cropped_images
-
-
 def vgg_predicted_result(image_path):
-    img = load_img(image_path, target_size=(50, 50))  # Ensure the image is 50x50
-    final_image = img_to_array(img) / 255.0  # Normalize the image
-    final_image = np.expand_dims(
-        final_image, axis=0
-    )  # Add the batch dimension (1, 50, 50, 3)
+    preprocessed_image = preprocess_image(image_path, 50, 50)
 
-    prediction = vgg19_model.predict(final_image)
-    predicted_class_index = np.argmax(prediction, axis=1)
-    predicted_class_label = classes.get(
-        predicted_class_index[0], "Unknown Class"
-    )  # Corrected index access
-    predicted_class_probability = prediction[0][
-        predicted_class_index[0]
-    ]  # Corrected index access
+    if preprocessed_image is not None:
+        # Add batch dimension to the image
+        input_data = np.expand_dims(preprocessed_image, axis=0)
 
-    return (
-        "VGG_Model",
-        predicted_class_index[0],  # Access the first item from the index array
-        predicted_class_label,
-        predicted_class_probability,
-    )
+        # Predict
+        prediction = vgg19_model.predict(input_data)
+        predicted_class_index = np.argmax(prediction, axis=1)[0]  # Get the class index
+
+        predicted_class_label = classes.get(predicted_class_index, "Unknown Class")
+        # Get the probability of the predicted class
+        predicted_class_probability = prediction[0][
+            predicted_class_index
+        ]  # Probability of the predicted class
+
+        return (
+            "VGG-19",
+            predicted_class_index,
+            predicted_class_label,
+            predicted_class_probability,
+        )
+
+    else:
+        st.error("Failed to preprocess the image.")
 
 
 def cnn_predicted_result(image_path):
     # Preprocess the image
-    preprocessed_image = preprocess_image_cnn(image_path, 30, 30)
+    preprocessed_image = preprocess_image(image_path, 30, 30)
 
     if preprocessed_image is not None:
         # Add batch dimension to the image
@@ -156,7 +121,7 @@ def cnn_predicted_result(image_path):
         st.error("Failed to preprocess the image.")
 
 
-def preprocess_image_cnn(image_path, img_height, img_width):
+def preprocess_image(image_path, img_height, img_width):
     try:
         image = cv2.imread(image_path)  # Load the image
         if image is None:
@@ -175,22 +140,29 @@ def preprocess_image_cnn(image_path, img_height, img_width):
 
 def yolov8_predicted_result(image_path):
     image = cv2.imread(image_path)
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    # Run YOLOv8 model
-    results = yolov8_model(image_path)
-    if results is None or len(results[0].boxes) == 0:
-        return ("YOLOv8", "N/A", "N/A", "N/A")
-    for result in results[0].boxes:
-        x1, y1, x2, y2 = result.xyxy[0].cpu().numpy()
-        predicted_class = int(result.cls[0].cpu().numpy())
-        confidence = float(result.conf[0].cpu().numpy())
-        predicted_class_label = classes.get(predicted_class, "Unknown Class")
-        return (
-            "YOLOv8",
-            predicted_class,
-            predicted_class_label,
-            confidence,
-        )
+
+    # Resize the image while maintaining aspect ratio
+    height, width = image.shape[:2]
+    max_dim = max(height, width)
+    scale_factor = 640 / max_dim  # Standard YOLO input size
+    new_size = (int(width * scale_factor), int(height * scale_factor))
+    resized_image = cv2.resize(image, new_size, interpolation=cv2.INTER_LINEAR)
+    resized_image = cv2.cvtColor(
+        resized_image, cv2.COLOR_BGR2RGB
+    )  # Convert BGR to RGB for displaying
+
+    # Perform prediction
+    results = yolov8_model(resized_image)
+
+    # Extract predicted class names from the results
+    predicted_class = [yolov8_model.names[int(box.cls)] for box in results[0].boxes][0]
+    predicted_probs = [box.conf.item() for box in results[0].boxes][0]
+    return (
+        "YOLOv8",
+        "",
+        predicted_class,
+        predicted_probs,
+    )
 
 
 # Streamlit App
@@ -210,16 +182,12 @@ def main():
         with open(temp_file_path, "wb") as f:
             f.write(uploaded_file.read())
 
-        images = traffic_sign_bounding_box_and_crop(temp_file_path)
-        for image in images[2]:
-            st.image(image, caption="Uploaded Image", use_column_width=True)
-
         # Display the uploaded image
-        # st.image(temp_file_path, caption="Uploaded Image", use_column_width=True)
+        st.image(temp_file_path, caption="Uploaded Image", use_column_width=True)
 
         cnn_result = cnn_predicted_result(temp_file_path)
 
-        yolo_result = yolov8_predicted_result(temp_file_path)
+        yolov8_result = yolov8_predicted_result(temp_file_path)
 
         vgg_result = vgg_predicted_result(temp_file_path)
 
@@ -233,10 +201,10 @@ def main():
                     "Predicted Probability": cnn_result[3],
                 },
                 {
-                    "Model": yolo_result[0],
-                    "Predicted Class Index": yolo_result[1],
-                    "Predicted Class Label": yolo_result[2],
-                    "Predicted Probability": yolo_result[3],
+                    "Model": yolov8_result[0],
+                    "Predicted Class Index": yolov8_result[1],
+                    "Predicted Class Label": yolov8_result[2],
+                    "Predicted Probability": yolov8_result[3],
                 },
                 {
                     "Model": vgg_result[0],
