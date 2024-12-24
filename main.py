@@ -139,7 +139,10 @@ def preprocess_image(image_path, img_height, img_width):
 
 
 def yolov8_predicted_result(image_path):
+    # Load and preprocess the image
     image = cv2.imread(image_path)
+    if image is None:
+        raise ValueError(f"Image at path '{image_path}' could not be loaded.")
 
     # Resize the image while maintaining aspect ratio
     height, width = image.shape[:2]
@@ -147,19 +150,29 @@ def yolov8_predicted_result(image_path):
     scale_factor = 640 / max_dim  # Standard YOLO input size
     new_size = (int(width * scale_factor), int(height * scale_factor))
     resized_image = cv2.resize(image, new_size, interpolation=cv2.INTER_LINEAR)
-    resized_image = cv2.cvtColor(
-        resized_image, cv2.COLOR_BGR2RGB
-    )  # Convert BGR to RGB for displaying
+    resized_image = cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
 
     # Perform prediction
-    results = yolov8_model(resized_image)
+    results = yolov8_model(
+        resized_image
+    )  # Assuming `yolov8_model` is already initialized
 
-    # Extract predicted class names from the results
-    predicted_class = [yolov8_model.names[int(box.cls)] for box in results[0].boxes][0]
-    predicted_probs = [box.conf.item() for box in results[0].boxes][0]
+    # Check if predictions exist
+    if len(results[0].boxes) == 0:
+        return (
+            "YOLOv8",
+            None,
+            "No predictions",
+            0.0,
+        )
+
+    # Extract predicted class names and confidence scores
+    predicted_class = yolov8_model.names[int(results[0].boxes[0].cls)]
+    predicted_probs = results[0].boxes[0].conf.item()
+
     return (
         "YOLOv8",
-        "",
+        None,
         predicted_class,
         predicted_probs,
     )
